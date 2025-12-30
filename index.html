@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Bus Counter 巴士客量統計 (含嶼巴)</title>
+    <title>Bus Counter 巴士客量統計 (含嶼巴+備註)</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -38,7 +38,7 @@
             Plus, Minus, RotateCcw, FileText, ChevronRight, Search, 
             Loader2, AlertCircle, Clock, Edit3, List, Users, Settings, 
             Copy, Check, BusFront, User, Hash, Info, MapPin, AlertTriangle, X, Pencil, Calculator, Timer,
-            BarChart3, Trash2, TrendingUp, Calendar, CheckCircle2
+            BarChart3, Trash2, TrendingUp, Calendar, CheckCircle2, StickyNote, Eye, EyeOff
         } from 'lucide-react';
 
         function App() {
@@ -64,6 +64,11 @@
             const [stopOff, setStopOff] = useState(0);
             const [arrivalTime, setArrivalTime] = useState('');
             
+            // 備註狀態 (Notes) - New Feature
+            const [currentNote, setCurrentNote] = useState('');
+            const [showNoteInput, setShowNoteInput] = useState(false);
+            const [includeNotesInReport, setIncludeNotesInReport] = useState(true);
+
             // 歷史記錄 (History)
             const [history, setHistory] = useState([]);
             
@@ -87,7 +92,7 @@
 
             // 歷史編輯狀態
             const [editingHistoryIndex, setEditingHistoryIndex] = useState(null);
-            const [historyEditValues, setHistoryEditValues] = useState({ on: 0, off: 0 });
+            const [historyEditValues, setHistoryEditValues] = useState({ on: 0, off: 0, note: '' });
 
             // --- API 數據狀態 (API Data) ---
             const [isLoading, setIsLoading] = useState(false);
@@ -158,6 +163,8 @@
                         setArrivalTime(session.arrivalTime || '');
                         setHistory(session.history || []);
                         setRouteStops(session.routeStops || []);
+                        setCurrentNote(session.currentNote || ''); // Load note
+                        setIncludeNotesInReport(session.includeNotesInReport ?? true);
                     } catch (e) {
                         console.error("Failed to load session", e);
                     }
@@ -169,10 +176,11 @@
                 if (!isLoaded.current) return;
                 const sessionData = {
                     company, routeNumber, currentStopIndex, tripInfo, activeVariant, tripRecorded,
-                    initialPassengers, totalPassengers, stopOn, stopOff, arrivalTime, history, routeStops
+                    initialPassengers, totalPassengers, stopOn, stopOff, arrivalTime, history, routeStops,
+                    currentNote, includeNotesInReport
                 };
                 localStorage.setItem('busCounterCurrentSession', JSON.stringify(sessionData));
-            }, [company, routeNumber, currentStopIndex, tripInfo, activeVariant, tripRecorded, initialPassengers, totalPassengers, stopOn, stopOff, arrivalTime, history, routeStops]);
+            }, [company, routeNumber, currentStopIndex, tripInfo, activeVariant, tripRecorded, initialPassengers, totalPassengers, stopOn, stopOff, arrivalTime, history, routeStops, currentNote, includeNotesInReport]);
 
 
             // --- 統計與清空邏輯 ---
@@ -458,6 +466,7 @@
                 setStopOn(0); setStopOff(0); setArrivalTime('');
                 setHistory([]); setNegativeDeficit(0); setShowNegativeCorrection(false);
                 setTripRecorded(false); 
+                setCurrentNote(''); // Reset note
             };
 
             const openResetConfirm = () => setShowResetConfirm(true);
@@ -487,6 +496,7 @@
             const jumpToStop = (index) => {
                 setCurrentStopIndex(index); setStopOn(0); setStopOff(0); setArrivalTime('');
                 setShowStopSelector(false);
+                setCurrentNote('');
             };
 
             const openManualInput = (type) => {
@@ -526,7 +536,7 @@
 
             const openHistoryEdit = (index) => {
                 const record = history[index];
-                setHistoryEditValues({ on: record.on, off: record.off });
+                setHistoryEditValues({ on: record.on, off: record.off, note: record.note || '' });
                 setEditingHistoryIndex(index);
             };
 
@@ -537,6 +547,7 @@
                     ...updatedHistory[editingHistoryIndex],
                     on: parseInt(historyEditValues.on) || 0,
                     off: parseInt(historyEditValues.off) || 0,
+                    note: historyEditValues.note // Save note
                 };
                 recalculateAll(initialPassengers, updatedHistory);
                 setEditingHistoryIndex(null);
@@ -552,11 +563,13 @@
                 const stopData = {
                     stopNumber: currentStopIndex + 1, stopName: currentStopName,
                     arrivalTime: arrivalTime || '-', on: stopOn, off: stopOff,
-                    occupancy: totalPassengers, timestamp: formatTime24()
+                    occupancy: totalPassengers, timestamp: formatTime24(),
+                    note: currentNote // Add note to history
                 };
                 setHistory([...history, stopData]);
                 setCurrentStopIndex(prev => prev + 1);
                 setStopOn(0); setStopOff(0); setArrivalTime('');
+                setCurrentNote(''); // Clear note for next stop
             };
 
             const incrementOn = () => { setStopOn(s => s + 1); setTotalPassengers(t => t + 1); };
@@ -599,23 +612,41 @@
                 text += `車長: ${tripInfo.captainId || '-'} ${tripInfo.captainName || ''}\n`;
                 text += `總行車時間: ${formatDuration(duration)}\n`;
                 text += `初始: ${initialPassengers} 人\n\n`;
-                text += `時間   | 站名          | 上  | 落  | 車上\n`;
-                text += `---------------------------------------------\n`;
+                
+                // 動態調整標題列
+                if (includeNotesInReport) {
+                    text += `時間   | 站名          | 上  | 落  | 車上 | 備註\n`;
+                    text += `----------------------------------------------------\n`;
+                } else {
+                    text += `時間   | 站名          | 上  | 落  | 車上\n`;
+                    text += `---------------------------------------------\n`;
+                }
                 
                 history.forEach(record => {
                     const timeStr = record.arrivalTime === '-' ? '--:--' : record.arrivalTime;
                     const stopName = cleanStopName(record.stopName);
                     const occupancyDisplay = record.occupancy < 0 ? `(${record.occupancy})` : record.occupancy;
-                    text += `${timeStr.padEnd(6)} | ${stopName.padEnd(12)} | +${record.on.toString().padEnd(2)} | -${record.off.toString().padEnd(2)} | ${occupancyDisplay}\n`;
+                    
+                    let line = `${timeStr.padEnd(6)} | ${stopName.padEnd(12)} | +${record.on.toString().padEnd(2)} | -${record.off.toString().padEnd(2)} | ${occupancyDisplay}`;
+                    
+                    if (includeNotesInReport) {
+                        line += ` | ${record.note || ''}`;
+                    }
+                    text += line + `\n`;
                 });
                 
                 if (routeStops.length === 0 || currentStopIndex < routeStops.length) {
-                    if (stopOn > 0 || stopOff > 0 || arrivalTime) {
+                    if (stopOn > 0 || stopOff > 0 || arrivalTime || currentNote) {
                         const rawName = routeStops.length > 0 ? routeStops[currentStopIndex]?.name : `第 ${currentStopIndex + 1} 站`;
                         const currName = cleanStopName(rawName);
                         const currTime = arrivalTime || '--:--';
                         const occupancyDisplay = totalPassengers < 0 ? `(${totalPassengers})` : totalPassengers;
-                        text += `${currTime.padEnd(6)} | ${currName.padEnd(12)} | +${stopOn.toString().padEnd(2)} | -${stopOff.toString().padEnd(2)} | ${occupancyDisplay}\n`;
+                        
+                        let line = `${currTime.padEnd(6)} | ${currName.padEnd(12)} | +${stopOn.toString().padEnd(2)} | -${stopOff.toString().padEnd(2)} | ${occupancyDisplay}`;
+                        if (includeNotesInReport) {
+                            line += ` | ${currentNote || ''}`;
+                        }
+                        text += line + `\n`;
                     }
                 }
                 
@@ -665,6 +696,10 @@
                                     <label className="text-xs font-bold text-red-500 uppercase block mb-1">落車 (Off)</label>
                                     <input type="number" value={historyEditValues.off} onChange={(e) => setHistoryEditValues({...historyEditValues, off: e.target.value})} className="w-full border-2 border-red-100 rounded-lg p-2 text-xl font-bold text-center focus:border-red-500 outline-none" />
                                 </div>
+                            </div>
+                            <div className="mb-4">
+                                <label className="text-xs font-bold text-slate-500 uppercase block mb-1">備註 (Note)</label>
+                                <input type="text" value={historyEditValues.note} onChange={(e) => setHistoryEditValues({...historyEditValues, note: e.target.value})} className="w-full border-2 border-slate-200 rounded-lg p-2 text-sm text-slate-800 outline-none focus:border-blue-400" placeholder="例如：客滿, 飛站..." />
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <button onClick={() => setEditingHistoryIndex(null)} className="py-2 bg-gray-100 rounded-lg font-bold text-gray-600">取消</button>
@@ -742,7 +777,14 @@
                         {renderHistoryEditModal()}
                         <header className="bg-white border-b p-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
                             <h2 className="text-xl font-bold flex items-center gap-2"><FileText className="w-6 h-6 text-blue-600" /> 統計報告</h2>
-                            <button onClick={() => setShowReport(false)} className="text-blue-600 font-medium">返回</button>
+                            <div className="flex items-center gap-3">
+                                {/* Note Toggle */}
+                                <button onClick={() => setIncludeNotesInReport(!includeNotesInReport)} className={`flex items-center gap-1 text-xs font-bold px-2 py-1.5 rounded border transition-colors ${includeNotesInReport ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
+                                    {includeNotesInReport ? <Eye className="w-3 h-3"/> : <EyeOff className="w-3 h-3"/>}
+                                    {includeNotesInReport ? '包含備註' : '隱藏備註'}
+                                </button>
+                                <button onClick={() => setShowReport(false)} className="text-blue-600 font-medium">返回</button>
+                            </div>
                         </header>
 
                         <div className="flex-1 overflow-y-auto p-4">
@@ -770,31 +812,35 @@
                                     </div>
                                 </div>
                                 
+                                <div className="overflow-x-auto">
                                 <table className="w-full text-sm">
                                     <thead className="bg-white border-b">
                                         <tr>
-                                            <th className="p-2 text-left text-blue-600 text-xs w-12 font-bold">時間</th>
-                                            <th className="p-2 text-left text-gray-500 text-xs font-bold">站名</th>
-                                            <th className="p-2 text-center text-green-600 text-xs w-8 font-bold">上</th>
-                                            <th className="p-2 text-center text-red-600 text-xs w-8 font-bold">落</th>
-                                            <th className="p-2 text-right text-gray-800 text-xs w-10 font-bold">車上</th>
+                                            <th className="p-2 text-left text-blue-600 text-xs w-12 font-bold whitespace-nowrap">時間</th>
+                                            <th className="p-2 text-left text-gray-500 text-xs font-bold whitespace-nowrap">站名</th>
+                                            <th className="p-2 text-center text-green-600 text-xs w-8 font-bold whitespace-nowrap">上</th>
+                                            <th className="p-2 text-center text-red-600 text-xs w-8 font-bold whitespace-nowrap">落</th>
+                                            <th className="p-2 text-right text-gray-800 text-xs w-10 font-bold whitespace-nowrap">車上</th>
+                                            {includeNotesInReport && <th className="p-2 text-left text-yellow-600 text-xs font-bold whitespace-nowrap">備註</th>}
                                             <th className="p-2 w-8"></th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100 bg-white">
                                         {history.map((record, idx) => (
                                             <tr key={idx} className="hover:bg-gray-50 group">
-                                                <td className="p-2 text-left font-mono text-blue-600 font-medium text-xs">{record.arrivalTime !== '-' ? record.arrivalTime : '--:--'}</td>
-                                                <td className="p-2"><div className="font-medium text-gray-800 text-xs break-words">{cleanStopName(record.stopName)}</div></td>
+                                                <td className="p-2 text-left font-mono text-blue-600 font-medium text-xs whitespace-nowrap">{record.arrivalTime !== '-' ? record.arrivalTime : '--:--'}</td>
+                                                <td className="p-2"><div className="font-medium text-gray-800 text-xs min-w-[80px]">{cleanStopName(record.stopName)}</div></td>
                                                 <td className="p-2 text-center font-bold text-green-600 text-xs">+{record.on}</td>
                                                 <td className="p-2 text-center font-bold text-red-500 text-xs">-{record.off}</td>
                                                 <td className="p-2 text-right font-bold text-gray-900 text-xs"><span className={record.occupancy < 0 ? 'text-red-500' : ''}>{record.occupancy < 0 ? `(${record.occupancy})` : record.occupancy}</span></td>
+                                                {includeNotesInReport && <td className="p-2 text-xs text-gray-500 italic max-w-[100px] truncate">{record.note}</td>}
                                                 <td className="p-2 text-right"><button onClick={() => openHistoryEdit(idx)} className="text-gray-300 hover:text-blue-600 p-1"><Edit3 className="w-4 h-4" /></button></td>
                                             </tr>
                                         ))}
-                                        {history.length === 0 && <tr><td colSpan="6" className="p-8 text-center text-gray-400 text-xs">暫無記錄</td></tr>}
+                                        {history.length === 0 && <tr><td colSpan={includeNotesInReport ? 7 : 6} className="p-8 text-center text-gray-400 text-xs">暫無記錄</td></tr>}
                                     </tbody>
                                 </table>
+                                </div>
                             </div>
                         </div>
 
@@ -840,9 +886,40 @@
                 );
             }
 
+            // --- NOTE INPUT MODAL ---
+            const renderNoteInputModal = () => {
+                if (!showNoteInput) return null;
+                return (
+                    <div className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                        <div className="bg-white rounded-xl p-6 w-full max-w-xs shadow-2xl">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                    <StickyNote className="w-5 h-5 text-yellow-500" /> 站點備註
+                                </h3>
+                                <button onClick={() => setShowNoteInput(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5"/></button>
+                            </div>
+                            <div className="mb-4">
+                                <p className="text-xs text-gray-500 mb-2">請輸入當前站點的備註 (例如: 客滿, 飛站)</p>
+                                <textarea 
+                                    className="w-full border-2 border-slate-200 rounded-xl p-3 text-lg text-slate-800 outline-none focus:border-yellow-400 h-24 resize-none bg-yellow-50"
+                                    placeholder="在此輸入備註..."
+                                    value={currentNote}
+                                    onChange={(e) => setCurrentNote(e.target.value)}
+                                    autoFocus
+                                ></textarea>
+                            </div>
+                            <button onClick={() => setShowNoteInput(false)} className="w-full py-3 bg-slate-800 text-white rounded-xl font-bold shadow-md">儲存並關閉</button>
+                        </div>
+                    </div>
+                );
+            }
+
             // Main Render
             return (
                 <div className="flex flex-col h-screen bg-slate-100 font-sans text-gray-900 overflow-hidden relative">
+                    {/* Render Modals */}
+                    {renderNoteInputModal()}
+                    
                     {/* Reset Confirm */}
                     {showResetConfirm && (
                         <div className="absolute inset-0 z-[60] bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
@@ -984,7 +1061,17 @@
                                 </div>
                             </div>
                             
-                            <div className="text-right border-l border-slate-600 pl-4 cursor-pointer active:opacity-80" onClick={() => openManualInput('initial')}>
+                            {/* NEW: Note Button in the Blue/Slate Area */}
+                            <div className="px-2 border-r border-slate-600 mr-2">
+                                <button 
+                                    onClick={() => setShowNoteInput(true)} 
+                                    className={`p-2 rounded-lg transition-all active:scale-95 border ${currentNote ? 'bg-yellow-500 text-slate-900 border-yellow-400' : 'bg-slate-600 text-slate-300 border-slate-500 hover:text-white'}`}
+                                >
+                                    <StickyNote className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            <div className="text-right cursor-pointer active:opacity-80" onClick={() => openManualInput('initial')}>
                                 <div className="text-[10px] text-slate-400 mb-0.5 flex items-center justify-end gap-1 uppercase font-bold">On Board <Edit3 className="w-3 h-3" /></div>
                                 <div className={`text-3xl font-mono font-bold leading-none ${totalPassengers < 0 ? 'text-red-400' : 'text-white'}`}>{totalPassengers}</div>
                             </div>
