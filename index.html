@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Bus Counter 巴士客量器</title>
+    <title>Bus Counter 巴士客量統計 (完整版)</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -38,7 +38,7 @@
             Plus, Minus, RotateCcw, FileText, ChevronRight, Search, 
             Loader2, AlertCircle, Clock, Edit3, List, Users, Settings, 
             Copy, Check, BusFront, User, Hash, Info, MapPin, AlertTriangle, X, Pencil, Calculator, Timer,
-            BarChart3, Trash2, TrendingUp, Calendar, CheckCircle2, StickyNote, Eye, EyeOff
+            BarChart3, Trash2, TrendingUp, Calendar, CheckCircle2, StickyNote, Eye, EyeOff, GitMerge
         } from 'lucide-react';
 
         function App() {
@@ -64,7 +64,7 @@
             const [stopOff, setStopOff] = useState(0);
             const [arrivalTime, setArrivalTime] = useState('');
             
-            // 備註狀態 (Notes) - New Feature
+            // 備註狀態 (Notes)
             const [currentNote, setCurrentNote] = useState('');
             const [showNoteInput, setShowNoteInput] = useState(false);
             const [includeNotesInReport, setIncludeNotesInReport] = useState(true);
@@ -115,9 +115,7 @@
 
             const cleanStopName = (name) => {
                 if (!name) return '';
-                // 移除括號內容
                 let cleaned = name.replace(/[\(（]([^\u4e00-\u9fa5]+?)[\)）]/g, '').trim();
-                // 移除逗號後內容
                 cleaned = cleaned.split(/,|，/)[0];
                 return cleaned.trim();
             };
@@ -135,7 +133,6 @@
             // --- 初始化與自動儲存 (Initialization & Auto-Save) ---
 
             useEffect(() => {
-                // Load Stats
                 const savedStats = localStorage.getItem('busCounterStats');
                 if (savedStats) {
                     try {
@@ -145,7 +142,6 @@
                     } catch (e) { console.error("Failed to load stats", e); }
                 }
 
-                // Load Current Session
                 const savedSession = localStorage.getItem('busCounterCurrentSession');
                 if (savedSession) {
                     try {
@@ -163,7 +159,7 @@
                         setArrivalTime(session.arrivalTime || '');
                         setHistory(session.history || []);
                         setRouteStops(session.routeStops || []);
-                        setCurrentNote(session.currentNote || ''); // Load note
+                        setCurrentNote(session.currentNote || '');
                         setIncludeNotesInReport(session.includeNotesInReport ?? true);
                     } catch (e) {
                         console.error("Failed to load session", e);
@@ -238,6 +234,8 @@
             const recalculateAll = (baseCount, currentHistory = history) => {
                 let runningTotal = baseCount;
                 const newHistory = currentHistory.map(record => {
+                    // 如果是分隔線記錄，跳過計算
+                    if (record.isSeparator) return record;
                     runningTotal = runningTotal + record.on - record.off;
                     return { ...record, occupancy: runningTotal };
                 });
@@ -248,7 +246,10 @@
             };
 
             const checkForNegativeDeficit = () => {
-                const lowestHistoryOccupancy = history.reduce((min, r) => Math.min(min, r.occupancy), Infinity); 
+                const lowestHistoryOccupancy = history.reduce((min, r) => {
+                    if (r.isSeparator) return min;
+                    return Math.min(min, r.occupancy);
+                }, Infinity); 
                 const overallLowest = Math.min(lowestHistoryOccupancy, totalPassengers);
                 return Math.max(0, -overallLowest);
             };
@@ -275,7 +276,7 @@
             const getCompanyColor = (comp) => {
                 if (comp === 'KMB') return 'bg-red-600 border-red-700 text-white';
                 if (comp === 'CTB') return 'bg-yellow-400 border-yellow-500 text-black';
-                if (comp === 'NLB') return 'bg-teal-600 border-teal-700 text-white'; // 嶼巴顏色
+                if (comp === 'NLB') return 'bg-teal-600 border-teal-700 text-white'; 
                 return 'bg-gray-400 border-gray-500 text-white';
             };
 
@@ -349,7 +350,6 @@
                             setApiError(`找不到城巴路線 ${routeNumber} 的資料`);
                         }
                     } else if (company === 'NLB') {
-                        // --- NLB 嶼巴搜尋邏輯 ---
                         const response = await fetch(`https://rt.data.gov.hk/v2/transport/nlb/route.php?action=list`);
                         const data = await response.json();
                         
@@ -359,13 +359,12 @@
                             );
 
                             if (filteredRoutes.length > 0) {
-                                // NLB 的 routeId 通常對應整條線，描述在 routeName_c
                                 const nlbVariants = filteredRoutes.map(r => ({
                                     company: 'NLB',
                                     route: r.routeNo,
-                                    routeId: r.routeId, // NLB 獨有的 routeId
-                                    description: r.routeName_c, // 例如 "梅窩 > 大澳"
-                                    subDescription: r.routeName_e, // 例如 "Mui Wo > Tai O"
+                                    routeId: r.routeId, 
+                                    description: r.routeName_c, 
+                                    subDescription: r.routeName_e, 
                                     tag: '嶼巴'
                                 }));
                                 setVariants(nlbVariants);
@@ -392,6 +391,8 @@
                 setRouteStops([]);
                 setActiveVariant(variant); 
                 try {
+                    let fullStopsData = [];
+
                     if (variant.company === 'KMB') {
                         const direction = variant.bound === 'O' ? 'outbound' : 'inbound';
                         const stopListUrl = `https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${variant.route}/${direction}/${variant.serviceType}`;
@@ -400,7 +401,7 @@
                         if (!stopListData.data || stopListData.data.length === 0) throw new Error("無站點資料");
 
                         const stopIds = stopListData.data.map(item => ({ id: item.stop, seq: item.seq }));
-                        const fullStopsData = await Promise.all(stopIds.map(async (s) => {
+                        fullStopsData = await Promise.all(stopIds.map(async (s) => {
                             try {
                                 const detailUrl = `https://data.etabus.gov.hk/v1/transport/kmb/stop/${s.id}`;
                                 const detailRes = await fetch(detailUrl);
@@ -409,7 +410,6 @@
                             } catch { return { seq: s.seq, id: s.id, name: "未知站點" }; }
                         }));
                         fullStopsData.sort((a, b) => parseInt(a.seq) - parseInt(a.seq));
-                        setRouteStops(fullStopsData);
 
                     } else if (variant.company === 'CTB') {
                         const stopListUrl = `https://rt.data.gov.hk/v2/transport/citybus/route-stop/CTB/${variant.route}/${variant.dir}`;
@@ -418,7 +418,7 @@
                         if (!stopListData.data || stopListData.data.length === 0) throw new Error("無站點資料");
 
                         const stopIds = stopListData.data.map(item => ({ id: item.stop, seq: item.seq }));
-                        const fullStopsData = await Promise.all(stopIds.map(async (s) => {
+                        fullStopsData = await Promise.all(stopIds.map(async (s) => {
                             try {
                                 const detailUrl = `https://rt.data.gov.hk/v2/transport/citybus/stop/${s.id}`;
                                 const detailRes = await fetch(detailUrl);
@@ -427,28 +427,35 @@
                             } catch { return { seq: s.seq, id: s.id, name: "未知站點" }; }
                         }));
                         fullStopsData.sort((a, b) => parseInt(a.seq) - parseInt(a.seq));
-                        setRouteStops(fullStopsData);
 
                     } else if (variant.company === 'NLB') {
-                        // --- NLB 嶼巴站點邏輯 ---
                         const stopListUrl = `https://rt.data.gov.hk/v2/transport/nlb/stop.php?action=list&routeId=${variant.routeId}`;
                         const stopListRes = await fetch(stopListUrl);
                         const stopListData = await stopListRes.json();
                         
                         if (!stopListData.stops || stopListData.stops.length === 0) throw new Error("無站點資料");
 
-                        // NLB API 返回的站點通常已經是列表順序，但有時會包含雙向站點
-                        // 由於 NLB API 結構較簡單，我們直接將返回的 stops 列表映射出來
-                        const fullStopsData = stopListData.stops.map((s, index) => ({
+                        fullStopsData = stopListData.stops.map((s, index) => ({
                             seq: index + 1,
                             id: s.stopId,
                             name: s.stopName_c
                         }));
-                        
-                        setRouteStops(fullStopsData);
                     }
                     
-                    resetCounter();
+                    setRouteStops(fullStopsData);
+                    
+                    // 如果不是合併行程，則重置計數
+                    if (routeStops.length === 0 && history.length === 0) {
+                        resetCounter();
+                    } else {
+                        // 合併行程：只重置部分狀態
+                        setCurrentStopIndex(0);
+                        setStopOn(0);
+                        setStopOff(0);
+                        setArrivalTime('');
+                        setCurrentNote('');
+                    }
+
                     setShowTripSettings(true); 
 
                 } catch (err) { 
@@ -466,7 +473,7 @@
                 setStopOn(0); setStopOff(0); setArrivalTime('');
                 setHistory([]); setNegativeDeficit(0); setShowNegativeCorrection(false);
                 setTripRecorded(false); 
-                setCurrentNote(''); // Reset note
+                setCurrentNote(''); 
             };
 
             const openResetConfirm = () => setShowResetConfirm(true);
@@ -485,9 +492,7 @@
             };
 
             const handleFinishAndReset = () => {
-                // 1. 如果尚未記錄到年度統計，則記錄
                 saveTripToStats();
-                // 2. 徹底重置
                 performHardReset();
             };
 
@@ -536,6 +541,7 @@
 
             const openHistoryEdit = (index) => {
                 const record = history[index];
+                if (record.isSeparator) return; // Cannot edit separator
                 setHistoryEditValues({ on: record.on, off: record.off, note: record.note || '' });
                 setEditingHistoryIndex(index);
             };
@@ -547,7 +553,7 @@
                     ...updatedHistory[editingHistoryIndex],
                     on: parseInt(historyEditValues.on) || 0,
                     off: parseInt(historyEditValues.off) || 0,
-                    note: historyEditValues.note // Save note
+                    note: historyEditValues.note 
                 };
                 recalculateAll(initialPassengers, updatedHistory);
                 setEditingHistoryIndex(null);
@@ -564,12 +570,46 @@
                     stopNumber: currentStopIndex + 1, stopName: currentStopName,
                     arrivalTime: arrivalTime || '-', on: stopOn, off: stopOff,
                     occupancy: totalPassengers, timestamp: formatTime24(),
-                    note: currentNote // Add note to history
+                    note: currentNote 
                 };
                 setHistory([...history, stopData]);
                 setCurrentStopIndex(prev => prev + 1);
                 setStopOn(0); setStopOff(0); setArrivalTime('');
-                setCurrentNote(''); // Clear note for next stop
+                setCurrentNote(''); 
+            };
+
+            // --- New: Continue Trip Function ---
+            const handleContinueTrip = () => {
+                // 1. Record the last stop
+                const currentStopName = routeStops.length > 0 ? routeStops[currentStopIndex]?.name : `第 ${currentStopIndex + 1} 站`;
+                const stopData = {
+                    stopNumber: currentStopIndex + 1, stopName: currentStopName,
+                    arrivalTime: arrivalTime || '-', on: stopOn, off: stopOff,
+                    occupancy: totalPassengers, timestamp: formatTime24(),
+                    note: currentNote || '繼續/合併行程'
+                };
+                
+                // Add separator to history
+                const separatorData = {
+                    isSeparator: true,
+                    stopName: '--- 繼續行程 ---',
+                    arrivalTime: '-', on: 0, off: 0, occupancy: totalPassengers, note: ''
+                };
+
+                setHistory([...history, stopData, separatorData]);
+
+                // 2. Soft Reset
+                setCurrentStopIndex(0);
+                setStopOn(0);
+                setStopOff(0);
+                setArrivalTime('');
+                setCurrentNote('');
+                
+                // 3. Trigger Route Selection
+                setRouteStops([]); 
+                setActiveVariant(null); 
+                setShowVariantSelector(true);
+                // Important: Do NOT reset totalPassengers or tripInfo
             };
 
             const incrementOn = () => { setStopOn(s => s + 1); setTotalPassengers(t => t + 1); };
@@ -581,9 +621,18 @@
 
             const getTripDuration = () => {
                 if (history.length === 0) return 0;
+                // Simple calculation from first to last record time
                 const start = history[0].arrivalTime;
-                const lastRecord = history[history.length - 1];
-                let end = lastRecord.arrivalTime;
+                let end = arrivalTime;
+                
+                // Find the last valid arrival time in history
+                for (let i = history.length - 1; i >= 0; i--) {
+                    if (!history[i].isSeparator && history[i].arrivalTime !== '-') {
+                        if (!end) end = history[i].arrivalTime;
+                        break;
+                    }
+                }
+                
                 if (arrivalTime && currentStopIndex < routeStops.length) {
                     end = arrivalTime; 
                 }
@@ -613,7 +662,6 @@
                 text += `總行車時間: ${formatDuration(duration)}\n`;
                 text += `初始: ${initialPassengers} 人\n\n`;
                 
-                // 動態調整標題列
                 if (includeNotesInReport) {
                     text += `時間   | 站名          | 上  | 落  | 車上 | 備註\n`;
                     text += `----------------------------------------------------\n`;
@@ -623,6 +671,10 @@
                 }
                 
                 history.forEach(record => {
+                    if (record.isSeparator) {
+                        text += `--- 繼續行程 / 轉頁 ---\n`;
+                        return;
+                    }
                     const timeStr = record.arrivalTime === '-' ? '--:--' : record.arrivalTime;
                     const stopName = cleanStopName(record.stopName);
                     const occupancyDisplay = record.occupancy < 0 ? `(${record.occupancy})` : record.occupancy;
@@ -675,11 +727,15 @@
                 return "前往下一站";
             };
 
+            const isLastStop = routeStops.length > 0 && currentStopIndex === routeStops.length - 1;
+
             // --- UI Render ---
             
             const renderHistoryEditModal = () => {
                 if (editingHistoryIndex === null) return null;
                 const record = history[editingHistoryIndex];
+                if (record.isSeparator) return null;
+
                 return (
                     <div className="absolute inset-0 z-[70] bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
                         <div className="bg-white rounded-xl p-5 w-full max-w-xs shadow-2xl">
@@ -826,7 +882,15 @@
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100 bg-white">
-                                        {history.map((record, idx) => (
+                                        {history.map((record, idx) => {
+                                            if (record.isSeparator) {
+                                                return (
+                                                    <tr key={idx} className="bg-gray-100">
+                                                        <td colSpan={includeNotesInReport ? 7 : 6} className="p-2 text-center text-xs font-bold text-slate-500 uppercase tracking-widest">--- 繼續行程 / 轉頁 ---</td>
+                                                    </tr>
+                                                );
+                                            }
+                                            return (
                                             <tr key={idx} className="hover:bg-gray-50 group">
                                                 <td className="p-2 text-left font-mono text-blue-600 font-medium text-xs whitespace-nowrap">{record.arrivalTime !== '-' ? record.arrivalTime : '--:--'}</td>
                                                 <td className="p-2"><div className="font-medium text-gray-800 text-xs min-w-[80px]">{cleanStopName(record.stopName)}</div></td>
@@ -836,7 +900,7 @@
                                                 {includeNotesInReport && <td className="p-2 text-xs text-gray-500 italic max-w-[100px] truncate">{record.note}</td>}
                                                 <td className="p-2 text-right"><button onClick={() => openHistoryEdit(idx)} className="text-gray-300 hover:text-blue-600 p-1"><Edit3 className="w-4 h-4" /></button></td>
                                             </tr>
-                                        ))}
+                                        )})}
                                         {history.length === 0 && <tr><td colSpan={includeNotesInReport ? 7 : 6} className="p-8 text-center text-gray-400 text-xs">暫無記錄</td></tr>}
                                     </tbody>
                                 </table>
@@ -1061,7 +1125,7 @@
                                 </div>
                             </div>
                             
-                            {/* NEW: Note Button in the Blue/Slate Area */}
+                            {/* Note Button */}
                             <div className="px-2 border-r border-slate-600 mr-2">
                                 <button 
                                     onClick={() => setShowNoteInput(true)} 
@@ -1107,10 +1171,23 @@
                         </div>
 
                         <div className="flex-none pt-1 pb-1">
-                            <button onClick={handleNextStop} disabled={routeStops.length > 0 && currentStopIndex > routeStops.length} className="w-full bg-slate-800 disabled:bg-slate-600 text-white h-16 rounded-xl shadow-lg flex items-center justify-between px-6 active:scale-[0.98] transition-all hover:bg-slate-700 group">
-                                <div className="flex flex-col items-start overflow-hidden text-left"><span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Next Action</span><span className="text-lg font-bold text-yellow-400 flex items-center gap-2 truncate">{getNextStopDisplay()}</span></div>
-                                <div className="bg-slate-700 p-2 rounded-full group-hover:bg-slate-600 transition-colors shadow-inner"><ChevronRight className="w-6 h-6 text-white" /></div>
-                            </button>
+                            {isLastStop ? (
+                                <div className="flex gap-2 h-16">
+                                     <button onClick={handleContinueTrip} className="flex-1 bg-amber-500 hover:bg-amber-600 text-white rounded-xl shadow-lg flex flex-col items-center justify-center px-4 active:scale-[0.98] transition-all group border border-amber-600">
+                                        <div className="text-[10px] font-bold uppercase tracking-wider mb-0.5 text-amber-100">轉頁/Loop</div>
+                                        <div className="text-lg font-bold flex items-center gap-2"><GitMerge className="w-5 h-5" /> 繼續行程及合併</div>
+                                    </button>
+                                    <button onClick={handleNextStop} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white rounded-xl shadow-lg flex flex-col items-center justify-center px-4 active:scale-[0.98] transition-all group border border-slate-700">
+                                        <div className="text-[10px] font-bold uppercase tracking-wider mb-0.5 text-slate-400">End Trip</div>
+                                        <div className="text-lg font-bold flex items-center gap-2">完成並結束 <ChevronRight className="w-5 h-5" /></div>
+                                    </button>
+                                </div>
+                            ) : (
+                                <button onClick={handleNextStop} disabled={routeStops.length > 0 && currentStopIndex > routeStops.length} className="w-full bg-slate-800 disabled:bg-slate-600 text-white h-16 rounded-xl shadow-lg flex items-center justify-between px-6 active:scale-[0.98] transition-all hover:bg-slate-700 group border border-slate-700">
+                                    <div className="flex flex-col items-start overflow-hidden text-left"><span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Next Action</span><span className="text-lg font-bold text-yellow-400 flex items-center gap-2 truncate">{getNextStopDisplay()}</span></div>
+                                    <div className="bg-slate-700 p-2 rounded-full group-hover:bg-slate-600 transition-colors shadow-inner"><ChevronRight className="w-6 h-6 text-white" /></div>
+                                </button>
+                            )}
                         </div>
                     </main>
                 </div>
