@@ -3,10 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Bus Counter 巴士客量統計 (完整版)</title>
+    <title>Bus Counter 巴士客量統計 </title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- SheetJS (XLSX) for Excel Export -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     
     <!-- React & ReactDOM -->
     <script type="importmap">
@@ -38,7 +41,7 @@
             Plus, Minus, RotateCcw, FileText, ChevronRight, Search, 
             Loader2, AlertCircle, Clock, Edit3, List, Users, Settings, 
             Copy, Check, BusFront, User, Hash, Info, MapPin, AlertTriangle, X, Pencil, Calculator, Timer,
-            BarChart3, Trash2, TrendingUp, Calendar, CheckCircle2, StickyNote, Eye, EyeOff, GitMerge
+            BarChart3, Trash2, TrendingUp, Calendar, CheckCircle2, StickyNote, Eye, EyeOff, GitMerge, FileSpreadsheet, Lightbulb
         } from 'lucide-react';
 
         function App() {
@@ -64,10 +67,11 @@
             const [stopOff, setStopOff] = useState(0);
             const [arrivalTime, setArrivalTime] = useState('');
             
-            // 備註狀態 (Notes)
+            // 備註與分析選項 (Notes & Analysis)
             const [currentNote, setCurrentNote] = useState('');
             const [showNoteInput, setShowNoteInput] = useState(false);
             const [includeNotesInReport, setIncludeNotesInReport] = useState(true);
+            const [includeAnalysis, setIncludeAnalysis] = useState(true);
 
             // 歷史記錄 (History)
             const [history, setHistory] = useState([]);
@@ -161,6 +165,7 @@
                         setRouteStops(session.routeStops || []);
                         setCurrentNote(session.currentNote || '');
                         setIncludeNotesInReport(session.includeNotesInReport ?? true);
+                        setIncludeAnalysis(session.includeAnalysis ?? true);
                     } catch (e) {
                         console.error("Failed to load session", e);
                     }
@@ -173,10 +178,10 @@
                 const sessionData = {
                     company, routeNumber, currentStopIndex, tripInfo, activeVariant, tripRecorded,
                     initialPassengers, totalPassengers, stopOn, stopOff, arrivalTime, history, routeStops,
-                    currentNote, includeNotesInReport
+                    currentNote, includeNotesInReport, includeAnalysis
                 };
                 localStorage.setItem('busCounterCurrentSession', JSON.stringify(sessionData));
-            }, [company, routeNumber, currentStopIndex, tripInfo, activeVariant, tripRecorded, initialPassengers, totalPassengers, stopOn, stopOff, arrivalTime, history, routeStops, currentNote, includeNotesInReport]);
+            }, [company, routeNumber, currentStopIndex, tripInfo, activeVariant, tripRecorded, initialPassengers, totalPassengers, stopOn, stopOff, arrivalTime, history, routeStops, currentNote, includeNotesInReport, includeAnalysis]);
 
 
             // --- 統計與清空邏輯 ---
@@ -234,7 +239,6 @@
             const recalculateAll = (baseCount, currentHistory = history) => {
                 let runningTotal = baseCount;
                 const newHistory = currentHistory.map(record => {
-                    // 如果是分隔線記錄，跳過計算
                     if (record.isSeparator) return record;
                     runningTotal = runningTotal + record.on - record.off;
                     return { ...record, occupancy: runningTotal };
@@ -269,6 +273,66 @@
                 } else {
                     setShowReport(true);
                 }
+            };
+
+            // --- Analysis Calculation (Enhanced) ---
+            const getAnalysisData = () => {
+                let combinedData = history.filter(r => !r.isSeparator);
+                
+                // Check if current active stop is valid to add
+                if (routeStops.length > 0 && currentStopIndex < routeStops.length) {
+                     if (stopOn > 0 || stopOff > 0 || arrivalTime || currentNote) {
+                         const currentRec = {
+                             stopName: routeStops[currentStopIndex].name,
+                             on: stopOn,
+                             occupancy: totalPassengers,
+                             note: currentNote,
+                             isLive: true // Flag to identify live data
+                         };
+                         combinedData = [...combinedData, currentRec];
+                     }
+                }
+
+                if (combinedData.length === 0) return null;
+
+                let maxOnVal = 0;
+                let maxOccVal = 0;
+
+                combinedData.forEach(r => {
+                    if (r.on > maxOnVal) maxOnVal = r.on;
+                    if (r.occupancy > maxOccVal) maxOccVal = r.occupancy;
+                });
+
+                const maxOnStops = combinedData.filter(r => r.on === maxOnVal && maxOnVal > 0);
+                
+                // Enhanced Logic for Occupancy Segment
+                // We need to store { from: stopName, to: nextStopName, val: occupancy }
+                const maxOccSegments = [];
+                
+                combinedData.forEach((r, idx) => {
+                    if (r.occupancy === maxOccVal && maxOccVal > 0) {
+                        let toStopName = "(總站前)"; // Default fallback
+                        
+                        // Try to find the next stop
+                        if (idx + 1 < combinedData.length) {
+                            // If next record exists in combinedData
+                            toStopName = cleanStopName(combinedData[idx + 1].stopName);
+                        } else if (r.isLive) {
+                            // If it's the live record, try to look at future routeStops
+                            if (currentStopIndex + 1 < routeStops.length) {
+                                toStopName = routeStops[currentStopIndex + 1].name;
+                            }
+                        }
+                        
+                        maxOccSegments.push({
+                            from: cleanStopName(r.stopName),
+                            to: toStopName,
+                            val: r.occupancy
+                        });
+                    }
+                });
+
+                return { maxOnVal, maxOccVal, maxOnStops, maxOccSegments };
             };
 
             // --- API 功能 ---
@@ -444,11 +508,9 @@
                     
                     setRouteStops(fullStopsData);
                     
-                    // 如果不是合併行程，則重置計數
                     if (routeStops.length === 0 && history.length === 0) {
                         resetCounter();
                     } else {
-                        // 合併行程：只重置部分狀態
                         setCurrentStopIndex(0);
                         setStopOn(0);
                         setStopOff(0);
@@ -541,7 +603,7 @@
 
             const openHistoryEdit = (index) => {
                 const record = history[index];
-                if (record.isSeparator) return; // Cannot edit separator
+                if (record.isSeparator) return; 
                 setHistoryEditValues({ on: record.on, off: record.off, note: record.note || '' });
                 setEditingHistoryIndex(index);
             };
@@ -578,9 +640,7 @@
                 setCurrentNote(''); 
             };
 
-            // --- New: Continue Trip Function ---
             const handleContinueTrip = () => {
-                // 1. Record the last stop
                 const currentStopName = routeStops.length > 0 ? routeStops[currentStopIndex]?.name : `第 ${currentStopIndex + 1} 站`;
                 const stopData = {
                     stopNumber: currentStopIndex + 1, stopName: currentStopName,
@@ -589,7 +649,6 @@
                     note: currentNote || '繼續/合併行程'
                 };
                 
-                // Add separator to history
                 const separatorData = {
                     isSeparator: true,
                     stopName: '--- 繼續行程 ---',
@@ -598,18 +657,15 @@
 
                 setHistory([...history, stopData, separatorData]);
 
-                // 2. Soft Reset
                 setCurrentStopIndex(0);
                 setStopOn(0);
                 setStopOff(0);
                 setArrivalTime('');
                 setCurrentNote('');
                 
-                // 3. Trigger Route Selection
                 setRouteStops([]); 
                 setActiveVariant(null); 
                 setShowVariantSelector(true);
-                // Important: Do NOT reset totalPassengers or tripInfo
             };
 
             const incrementOn = () => { setStopOn(s => s + 1); setTotalPassengers(t => t + 1); };
@@ -621,11 +677,9 @@
 
             const getTripDuration = () => {
                 if (history.length === 0) return 0;
-                // Simple calculation from first to last record time
                 const start = history[0].arrivalTime;
                 let end = arrivalTime;
                 
-                // Find the last valid arrival time in history
                 for (let i = history.length - 1; i >= 0; i--) {
                     if (!history[i].isSeparator && history[i].arrivalTime !== '-') {
                         if (!end) end = history[i].arrivalTime;
@@ -646,12 +700,101 @@
                 return h > 0 ? `${h}小時${m}分鐘` : `${m}分鐘`;
             };
 
+            // --- EXCEL EXPORT FUNCTION ---
+            const exportToExcel = () => {
+                const duration = getTripDuration();
+                const durationStr = formatDuration(duration);
+                const dateStr = new Date().toLocaleDateString();
+                const filename = `BusReport_${routeNumber || 'Route'}_${dateStr.replace(/\//g, '-')}.xlsx`;
+                const analysisData = getAnalysisData();
+
+                // 1. Prepare Metadata Header
+                const wsData = [
+                    ["巴士客量統計報告"],
+                    ["日期", dateStr],
+                    ["路線", `${company} ${routeNumber || '-'}`],
+                    ["車牌", tripInfo.plate || '-'],
+                    ["車長", `${tripInfo.captainId || '-'} ${tripInfo.captainName || ''}`],
+                    ["總行車時間", durationStr],
+                    ["初始人數", initialPassengers],
+                    [], // Empty Row
+                ];
+
+                // Add Analysis if enabled
+                if (includeAnalysis && analysisData && (analysisData.maxOnVal > 0 || analysisData.maxOccVal > 0)) {
+                    wsData.push(["*** 重點客量分析 ***"]);
+                    if (analysisData.maxOnStops.length > 0) {
+                        const stops = analysisData.maxOnStops.map(s => cleanStopName(s.stopName)).join(", ");
+                        wsData.push(["最多人上車", `${stops} (${analysisData.maxOnVal}人)`]);
+                    }
+                    if (analysisData.maxOccSegments.length > 0) {
+                        const segments = analysisData.maxOccSegments.map(s => `${s.from} - ${s.to} 段`).join(", ");
+                        wsData.push(["最高載客路段", `${segments} (${analysisData.maxOccVal}人)`]);
+                    }
+                    wsData.push([]); // Empty Row
+                }
+
+                // Table Header
+                wsData.push(["時間", "站名", "上", "落", "車上", "備註"]);
+
+                // 2. Add History Rows
+                history.forEach(record => {
+                    if (record.isSeparator) {
+                        wsData.push(["--- 繼續行程 ---", "", "", "", "", ""]);
+                    } else {
+                        wsData.push([
+                            record.arrivalTime === '-' ? '--:--' : record.arrivalTime,
+                            cleanStopName(record.stopName),
+                            record.on,
+                            record.off,
+                            record.occupancy,
+                            record.note || ''
+                        ]);
+                    }
+                });
+
+                // 3. Add Current Stop (if active)
+                if (routeStops.length > 0 && currentStopIndex < routeStops.length) {
+                    if (stopOn > 0 || stopOff > 0 || arrivalTime || currentNote) {
+                        const rawName = routeStops.length > 0 ? routeStops[currentStopIndex]?.name : `第 ${currentStopIndex + 1} 站`;
+                         wsData.push([
+                            arrivalTime || '--:--',
+                            cleanStopName(rawName),
+                            stopOn,
+                            stopOff,
+                            totalPassengers,
+                            currentNote || ''
+                        ]);
+                    }
+                }
+
+                // 4. Create Worksheet and Workbook
+                const ws = XLSX.utils.aoa_to_sheet(wsData);
+                
+                // Adjust column widths
+                ws['!cols'] = [
+                    { wch: 10 }, // Time
+                    { wch: 25 }, // Stop Name
+                    { wch: 5 },  // On
+                    { wch: 5 },  // Off
+                    { wch: 8 },  // Occupancy
+                    { wch: 20 }  // Note
+                ];
+
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Report");
+
+                // 5. Download File
+                XLSX.writeFile(wb, filename);
+            };
+
             const copyReport = () => {
                 if (currentStopIndex >= routeStops.length - 1) {
                     saveTripToStats();
                 }
 
                 const duration = getTripDuration();
+                const analysisData = getAnalysisData();
                 
                 let text = `巴士客量統計報告\n`;
                 text += `================================\n`;
@@ -661,6 +804,19 @@
                 text += `車長: ${tripInfo.captainId || '-'} ${tripInfo.captainName || ''}\n`;
                 text += `總行車時間: ${formatDuration(duration)}\n`;
                 text += `初始: ${initialPassengers} 人\n\n`;
+
+                if (includeAnalysis && analysisData && (analysisData.maxOnVal > 0 || analysisData.maxOccVal > 0)) {
+                    text += `*** 重點客量分析 ***\n`;
+                    if (analysisData.maxOnStops.length > 0) {
+                        const stops = analysisData.maxOnStops.map(s => cleanStopName(s.stopName)).join(", ");
+                        text += `🔥 最多人上車: ${stops} (+${analysisData.maxOnVal})\n`;
+                    }
+                    if (analysisData.maxOccSegments.length > 0) {
+                        const segments = analysisData.maxOccSegments.map(s => `${s.from} - ${s.to} 段`).join(", ");
+                        text += `🚌 最高載客路段: ${segments} (${analysisData.maxOccVal})\n`;
+                    }
+                    text += `\n`;
+                }
                 
                 if (includeNotesInReport) {
                     text += `時間   | 站名          | 上  | 落  | 車上 | 備註\n`;
@@ -828,16 +984,22 @@
             // --- REPORT PAGE ---
             if (showReport) {
                 const duration = getTripDuration();
+                const analysisData = getAnalysisData();
+
                 return (
                     <div className="flex flex-col h-screen bg-gray-50 font-sans text-gray-900 relative">
                         {renderHistoryEditModal()}
                         <header className="bg-white border-b p-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
                             <h2 className="text-xl font-bold flex items-center gap-2"><FileText className="w-6 h-6 text-blue-600" /> 統計報告</h2>
                             <div className="flex items-center gap-3">
+                                {/* Analysis Toggle */}
+                                <button onClick={() => setIncludeAnalysis(!includeAnalysis)} className={`flex items-center gap-1 text-xs font-bold px-2 py-1.5 rounded border transition-colors ${includeAnalysis ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
+                                    <Lightbulb className="w-3 h-3"/> {includeAnalysis ? '分析' : '隱藏'}
+                                </button>
                                 {/* Note Toggle */}
                                 <button onClick={() => setIncludeNotesInReport(!includeNotesInReport)} className={`flex items-center gap-1 text-xs font-bold px-2 py-1.5 rounded border transition-colors ${includeNotesInReport ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
                                     {includeNotesInReport ? <Eye className="w-3 h-3"/> : <EyeOff className="w-3 h-3"/>}
-                                    {includeNotesInReport ? '包含備註' : '隱藏備註'}
+                                    {includeNotesInReport ? '備註' : '隱藏'}
                                 </button>
                                 <button onClick={() => setShowReport(false)} className="text-blue-600 font-medium">返回</button>
                             </div>
@@ -867,6 +1029,37 @@
                                         <span className="font-bold text-lg">{initialPassengers}</span>
                                     </div>
                                 </div>
+
+                                {/* ANALYSIS BOX */}
+                                {includeAnalysis && analysisData && (analysisData.maxOnVal > 0 || analysisData.maxOccVal > 0) && (
+                                    <div className="bg-purple-50 border-b border-purple-100 p-3">
+                                        <h3 className="text-purple-800 text-xs font-bold uppercase mb-2 flex items-center gap-1"><TrendingUp className="w-3 h-3"/> 重點客量分析</h3>
+                                        <div className="space-y-2">
+                                            {analysisData.maxOnStops.length > 0 && (
+                                                <div className="flex justify-between items-start text-sm">
+                                                    <span className="text-gray-500 text-xs font-bold">最多人上車 (Max Boarding)</span>
+                                                    <div className="text-right">
+                                                        <div className="font-bold text-purple-700">{analysisData.maxOnStops.map(s => cleanStopName(s.stopName)).join(", ")}</div>
+                                                        <div className="text-xs text-purple-500">+{analysisData.maxOnVal} 人</div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {analysisData.maxOccSegments.length > 0 && (
+                                                <div className="flex justify-between items-start text-sm">
+                                                    <span className="text-gray-500 text-xs font-bold">最高載客路段 (Max Segment)</span>
+                                                    <div className="text-right">
+                                                        {analysisData.maxOccSegments.map((seg, idx) => (
+                                                            <div key={idx} className="font-bold text-purple-700">
+                                                                {seg.from} - {seg.to} 段
+                                                            </div>
+                                                        ))}
+                                                        <div className="text-xs text-purple-500">共 {analysisData.maxOccVal} 人</div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
                                 
                                 <div className="overflow-x-auto">
                                 <table className="w-full text-sm">
@@ -890,10 +1083,25 @@
                                                     </tr>
                                                 );
                                             }
+                                            // Highlight analysis rows if enabled
+                                            const isMaxOn = includeAnalysis && analysisData && analysisData.maxOnStops.some(s => s.stopName === record.stopName) && analysisData.maxOnVal === record.on && record.on > 0;
+                                            const isMaxOcc = includeAnalysis && analysisData && analysisData.maxOccSegments.some(s => s.from === cleanStopName(record.stopName)) && analysisData.maxOccVal === record.occupancy && record.occupancy > 0;
+                                            
+                                            let rowClass = "hover:bg-gray-50 group";
+                                            if (isMaxOn || isMaxOcc) rowClass += " bg-purple-50/30";
+
                                             return (
-                                            <tr key={idx} className="hover:bg-gray-50 group">
+                                            <tr key={idx} className={rowClass}>
                                                 <td className="p-2 text-left font-mono text-blue-600 font-medium text-xs whitespace-nowrap">{record.arrivalTime !== '-' ? record.arrivalTime : '--:--'}</td>
-                                                <td className="p-2"><div className="font-medium text-gray-800 text-xs min-w-[80px]">{cleanStopName(record.stopName)}</div></td>
+                                                <td className="p-2">
+                                                    <div className="font-medium text-gray-800 text-xs min-w-[80px]">{cleanStopName(record.stopName)}</div>
+                                                    {(isMaxOn || isMaxOcc) && (
+                                                        <div className="flex gap-1 mt-0.5">
+                                                            {isMaxOn && <span className="text-[9px] bg-green-100 text-green-700 px-1 rounded">Max上</span>}
+                                                            {isMaxOcc && <span className="text-[9px] bg-purple-100 text-purple-700 px-1 rounded">Max載</span>}
+                                                        </div>
+                                                    )}
+                                                </td>
                                                 <td className="p-2 text-center font-bold text-green-600 text-xs">+{record.on}</td>
                                                 <td className="p-2 text-center font-bold text-red-500 text-xs">-{record.off}</td>
                                                 <td className="p-2 text-right font-bold text-gray-900 text-xs"><span className={record.occupancy < 0 ? 'text-red-500' : ''}>{record.occupancy < 0 ? `(${record.occupancy})` : record.occupancy}</span></td>
@@ -910,12 +1118,20 @@
 
                         {/* 底部按鈕區域 */}
                         <div className="p-4 bg-white border-t pb-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] space-y-3">
-                            <button 
-                                onClick={copyReport} 
-                                className={`w-full py-4 rounded-xl text-lg font-bold flex items-center justify-center gap-2 transition-all shadow-md active:scale-[0.98] ${copied ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'}`}
-                            >
-                                {copied ? <><Check className="w-5 h-5"/> 已複製到剪貼簿</> : <><Copy className="w-5 h-5"/> 複製完整報告</>}
-                            </button>
+                            <div className="grid grid-cols-2 gap-3">
+                                <button 
+                                    onClick={copyReport} 
+                                    className={`w-full py-4 rounded-xl text-lg font-bold flex items-center justify-center gap-2 transition-all shadow-md active:scale-[0.98] ${copied ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'}`}
+                                >
+                                    {copied ? <><Check className="w-5 h-5"/> 已複製</> : <><Copy className="w-5 h-5"/> 複製報告</>}
+                                </button>
+                                <button 
+                                    onClick={exportToExcel} 
+                                    className="w-full py-4 rounded-xl text-lg font-bold flex items-center justify-center gap-2 transition-all shadow-md active:scale-[0.98] bg-emerald-600 text-white hover:bg-emerald-700"
+                                >
+                                    <FileSpreadsheet className="w-5 h-5"/> 匯出 Excel
+                                </button>
+                            </div>
                             
                             <button 
                                 onClick={handleFinishAndReset} 
