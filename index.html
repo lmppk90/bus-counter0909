@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title> 巴士客量統計 </title>
+    <title>Bus Counter 巴士客量統計 </title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -41,7 +41,7 @@
             Plus, Minus, RotateCcw, FileText, ChevronRight, ChevronLeft, Search, 
             Loader2, AlertCircle, Clock, Edit3, List, Users, Settings, 
             Copy, Check, BusFront, User, Hash, Info, MapPin, AlertTriangle, X, Pencil, Calculator, Timer,
-            BarChart3, Trash2, TrendingUp, Calendar, CheckCircle2, StickyNote, Eye, EyeOff, GitMerge, FileSpreadsheet, Lightbulb, UserPlus, ArrowDownToLine
+            BarChart3, Trash2, TrendingUp, Calendar, CheckCircle2, StickyNote, Eye, EyeOff, GitMerge, FileSpreadsheet, Lightbulb, UserPlus, ArrowDownToLine, StopCircle
         } from 'lucide-react';
 
         function App() {
@@ -71,7 +71,7 @@
             const [showNoteInput, setShowNoteInput] = useState(false);
             const [includeNotesInReport, setIncludeNotesInReport] = useState(true);
             const [includeAnalysis, setIncludeAnalysis] = useState(true);
-            const [showTotalPatronage, setShowTotalPatronage] = useState(true); // Renamed for clarity
+            const [showTotalPatronage, setShowTotalPatronage] = useState(true); 
             const [statsTab, setStatsTab] = useState('monthly');
 
             // 歷史記錄
@@ -305,17 +305,16 @@
                 }
             };
 
-            // --- Analysis Calculation (Optimized) ---
+            // --- Analysis Calculation ---
             const getAnalysisData = () => {
                 let combinedData = history.filter(r => !r.isSeparator);
                 
-                // Live data check
                 if (routeStops.length > 0 && currentStopIndex < routeStops.length) {
                      if (stopOn > 0 || stopOff > 0 || arrivalTime || currentNote) {
                          const currentRec = {
                              stopName: routeStops[currentStopIndex].name,
                              on: stopOn,
-                             off: stopOff, // Need off for analysis
+                             off: stopOff, 
                              occupancy: totalPassengers,
                              note: currentNote,
                              isLive: true
@@ -328,7 +327,7 @@
 
                 let maxOnVal = 0;
                 let maxOccVal = 0;
-                let maxOffVal = 0; // New metric
+                let maxOffVal = 0; 
 
                 combinedData.forEach(r => {
                     if (r.on > maxOnVal) maxOnVal = r.on;
@@ -339,25 +338,19 @@
                 const maxOnStops = combinedData.filter(r => r.on === maxOnVal && maxOnVal > 0);
                 const maxOffStops = combinedData.filter(r => r.off === maxOffVal && maxOffVal > 0);
                 
-                // Segment Logic
                 const rawSegments = [];
                 combinedData.forEach((r, idx) => {
                     if (r.occupancy === maxOccVal && maxOccVal > 0) {
                         let toStopName = null;
-                        
-                        // Look ahead logic
                         if (idx + 1 < combinedData.length) {
                             toStopName = cleanStopName(combinedData[idx + 1].stopName);
                         } else if (r.isLive) {
-                            // If it is the live (current) record
                             if (currentStopIndex + 1 < routeStops.length) {
                                 toStopName = routeStops[currentStopIndex + 1].name;
                             } else {
-                                // Live record is the last one in routeStops list
                                 toStopName = "報告完結";
                             }
                         } else {
-                            // It is the last history record and not live
                             toStopName = "報告完結";
                         }
                         
@@ -369,7 +362,6 @@
                     }
                 });
 
-                // Merge Segments
                 const mergedSegments = [];
                 if (rawSegments.length > 0) {
                     let currentSeg = { ...rawSegments[0] };
@@ -384,10 +376,8 @@
                     mergedSegments.push(currentSeg);
                 }
 
-                // Final formatting for "Report End" logic
                 const formattedSegments = mergedSegments.map(seg => {
                     if (seg.to === "報告完結" || seg.to === null) {
-                        // If it's a single point where report ended or just the last point
                         return `${seg.from} (報告完結站)`;
                     } else {
                         return `${seg.from} - ${seg.to} 段`;
@@ -537,7 +527,9 @@
                 localStorage.removeItem('busCounterCurrentSession');
             };
 
+            // MODIFIED: Copy before reset
             const handleFinishAndReset = () => {
+                copyReport();
                 saveTripToStats();
                 performHardReset();
             };
@@ -607,17 +599,33 @@
                 setStopOn(0); setStopOff(0); setArrivalTime(''); setCurrentNote(''); 
             };
 
-            // Previous Stop Function
+            // NEW: Handle Complete and Auto-Jump to Report (Unified for all stops)
+            const handleCompleteAndShowReport = () => {
+                // Ensure stats are saved even if ending early
+                saveTripToStats();
+                
+                const currentStopName = routeStops.length > 0 ? routeStops[currentStopIndex]?.name : `第 ${currentStopIndex + 1} 站`;
+                const stopData = {
+                    stopNumber: currentStopIndex + 1, stopName: currentStopName,
+                    arrivalTime: arrivalTime || '-', on: stopOn, off: stopOff,
+                    occupancy: totalPassengers, timestamp: formatTime24(), note: currentNote
+                };
+                
+                setHistory([...history, stopData]);
+                setCurrentStopIndex(prev => prev + 1);
+                setStopOn(0); setStopOff(0); setArrivalTime(''); setCurrentNote('');
+                
+                // Jump to Report
+                setShowReport(true);
+            };
+
             const handlePrevStop = () => {
                 if (currentStopIndex === 0) return;
-                
                 const newHistory = [...history];
                 const lastRecord = newHistory.pop();
-                
                 if (lastRecord && lastRecord.isSeparator) {
                     if (newHistory.length > 0) newHistory.pop();
                 }
-
                 setCurrentStopIndex(prev => prev - 1);
                 if (lastRecord && !lastRecord.isSeparator) {
                     setStopOn(lastRecord.on);
@@ -625,7 +633,6 @@
                     setArrivalTime(lastRecord.arrivalTime === '-' ? '' : lastRecord.arrivalTime);
                     setCurrentNote(lastRecord.note || '');
                 }
-                
                 setHistory(newHistory);
                 recalculateAll(initialPassengers, newHistory);
             };
@@ -647,12 +654,10 @@
             const incrementOn = () => { setStopOn(s => s + 1); setTotalPassengers(t => t + 1); };
             const decrementOn = () => { if (stopOn > 0) { setStopOn(s => s - 1); setTotalPassengers(t => t - 1); }};
             const incrementOff = () => { setStopOff(s => s + 1); setTotalPassengers(t => t - 1); };
-            
-            // FIXED BUG: Decrementing Off means the person is BACK on board
             const decrementOff = () => { 
                 if (stopOff > 0) { 
                     setStopOff(s => s - 1); 
-                    setTotalPassengers(t => t + 1); // FIXED: Add back to total
+                    setTotalPassengers(t => t + 1); 
                 }
             };
 
@@ -888,42 +893,62 @@
                             <button onClick={() => setShowStats(false)} className="text-purple-600 font-medium">返回</button>
                         </header>
 
+                        {/* Tab Switcher */}
+                        <div className="px-4 pt-4">
+                            <div className="flex bg-gray-200 rounded-lg p-1">
+                                <button 
+                                    onClick={() => setStatsTab('monthly')}
+                                    className={`flex-1 py-1.5 text-sm font-bold rounded-md transition-all ${statsTab === 'monthly' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}
+                                >
+                                    月度統計
+                                </button>
+                                <button 
+                                    onClick={() => setStatsTab('yearly')}
+                                    className={`flex-1 py-1.5 text-sm font-bold rounded-md transition-all ${statsTab === 'yearly' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500'}`}
+                                >
+                                    年度統計
+                                </button>
+                            </div>
+                        </div>
+
                         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                            {/* Monthly Card */}
-                            <div className="bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl p-6 text-white shadow-md relative overflow-hidden">
-                                <div className="relative z-10">
-                                    <div className="text-sm font-medium opacity-80 mb-1 flex items-center gap-1"><Calendar className="w-4 h-4"/> 本月行程 ({new Date().getMonth() + 1}月)</div>
-                                    <div className="text-4xl font-bold">{statsData.monthly?.total || 0} <span className="text-lg font-normal opacity-80">次</span></div>
-                                    <div className="text-[10px] mt-2 opacity-60">每月1日 02:00 重置</div>
+                            {/* Summary Card */}
+                            {statsTab === 'monthly' ? (
+                                <div className="bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl p-6 text-white shadow-md relative overflow-hidden transition-all">
+                                    <div className="relative z-10">
+                                        <div className="text-sm font-medium opacity-80 mb-1 flex items-center gap-1"><Calendar className="w-4 h-4"/> 本月行程 ({new Date().getMonth() + 1}月)</div>
+                                        <div className="text-4xl font-bold">{statsData.monthly?.total || 0} <span className="text-lg font-normal opacity-80">次</span></div>
+                                        <div className="text-[10px] mt-2 opacity-60">每月1日 02:00 重置</div>
+                                    </div>
+                                    <BarChart3 className="absolute right-[-10px] bottom-[-10px] w-24 h-24 text-white opacity-20" />
                                 </div>
-                                <BarChart3 className="absolute right-[-10px] bottom-[-10px] w-24 h-24 text-white opacity-20" />
-                            </div>
-
-                            {/* Yearly Card */}
-                            <div className="bg-gradient-to-br from-purple-600 to-indigo-600 rounded-xl p-6 text-white shadow-md relative overflow-hidden">
-                                <div className="relative z-10">
-                                    <div className="text-sm font-medium opacity-80 mb-1 flex items-center gap-1"><TrendingUp className="w-4 h-4"/> 本年度行程</div>
-                                    <div className="text-4xl font-bold">{statsData.yearly?.total || 0} <span className="text-lg font-normal opacity-80">次</span></div>
-                                    <div className="text-[10px] mt-2 opacity-60">每年1月1日 02:00 重置</div>
+                            ) : (
+                                <div className="bg-gradient-to-br from-purple-600 to-indigo-600 rounded-xl p-6 text-white shadow-md relative overflow-hidden transition-all">
+                                    <div className="relative z-10">
+                                        <div className="text-sm font-medium opacity-80 mb-1 flex items-center gap-1"><TrendingUp className="w-4 h-4"/> 本年度行程</div>
+                                        <div className="text-4xl font-bold">{statsData.yearly?.total || 0} <span className="text-lg font-normal opacity-80">次</span></div>
+                                        <div className="text-[10px] mt-2 opacity-60">每年1月1日 02:00 重置</div>
+                                    </div>
+                                    <TrendingUp className="absolute right-[-10px] bottom-[-10px] w-24 h-24 text-white opacity-20" />
                                 </div>
-                                <TrendingUp className="absolute right-[-10px] bottom-[-10px] w-24 h-24 text-white opacity-20" />
-                            </div>
+                            )}
 
+                            {/* Ranking List */}
                             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                                 <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
-                                    <h3 className="font-bold text-gray-700">路線排行榜 (年度)</h3>
+                                    <h3 className="font-bold text-gray-700">路線排行榜 ({statsTab === 'monthly' ? '月度' : '年度'})</h3>
                                     <button onClick={manualClearStats} className="text-red-400 p-1 hover:text-red-600"><Trash2 className="w-4 h-4"/></button>
                                 </div>
-                                {yearlyKeys.length === 0 ? (
+                                {((statsTab === 'monthly' ? monthlyKeys : yearlyKeys).length === 0) ? (
                                     <div className="p-8 text-center text-gray-400 text-sm">暫無統計數據</div>
                                 ) : (
                                     <ul className="divide-y divide-gray-100">
-                                        {yearlyKeys.map(key => {
-                                            const t = statsData.yearly.trips[key];
+                                        {(statsTab === 'monthly' ? monthlyKeys : yearlyKeys).map(key => {
+                                            const t = (statsTab === 'monthly' ? statsData.monthly.trips : statsData.yearly.trips)[key];
                                             return (
                                                 <li key={key} className="p-4 flex items-center justify-between hover:bg-gray-50">
                                                     <div className="flex items-center gap-3">
-                                                        <span className={`text-xs w-10 h-6 flex items-center justify-center rounded font-bold ${getCompanyColor(t.company).replace('border', '')}`}>{t.company === 'KMB' ? t.route : t.company === 'NLB' ? 'NLB' : 'CTB'}</span>
+                                                        <span className={`text-xs w-10 h-6 flex items-center justify-center rounded font-bold ${getCompanyColor(t.company).replace('border', '')}`}>{t.company === 'KMB' ? t.route : (t.company === 'CTB' ? 'CTB' : 'NLB')}</span>
                                                         <div>
                                                             <div className="font-bold text-gray-800 flex items-center gap-2">
                                                                 {t.route} <span className="text-xs font-normal text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">{t.desc}</span>
@@ -1055,7 +1080,6 @@
                                                     </tr>
                                                 );
                                             }
-                                            // Highlight analysis rows if enabled
                                             const isMaxOn = includeAnalysis && analysisData && analysisData.maxOnStops.some(s => s.stopName === record.stopName) && analysisData.maxOnVal === record.on && record.on > 0;
                                             const isMaxOcc = includeAnalysis && analysisData && analysisData.formattedSegments.some(seg => seg.startsWith(cleanStopName(record.stopName))) && analysisData.maxOccVal === record.occupancy && record.occupancy > 0;
                                             
@@ -1115,7 +1139,7 @@
                                 onClick={handleFinishAndReset} 
                                 className="w-full py-4 rounded-xl text-lg font-bold flex items-center justify-center gap-2 bg-slate-800 text-white shadow-md active:scale-[0.98] border border-slate-700"
                             >
-                                <CheckCircle2 className="w-5 h-5 text-green-400" /> 完成行程並重置
+                                <CheckCircle2 className="w-5 h-5 text-green-400" /> 複製並重置
                             </button>
                         </div>
                     </div>
@@ -1378,25 +1402,32 @@
                                             <div className="text-base font-bold flex items-center gap-1"><GitMerge className="w-4 h-4" /> 繼續行程及合併</div>
                                         </button>
                                     </div>
-                                    <button onClick={handleNextStop} className="w-full h-14 bg-slate-800 hover:bg-slate-700 text-white rounded-xl shadow-lg flex flex-col items-center justify-center px-4 active:scale-[0.98] transition-all group border border-slate-700">
+                                    <button onClick={handleCompleteAndShowReport} className="w-full h-14 bg-slate-800 hover:bg-slate-700 text-white rounded-xl shadow-lg flex flex-col items-center justify-center px-4 active:scale-[0.98] transition-all group border border-slate-700">
                                         <div className="text-[9px] font-bold uppercase tracking-wider mb-0.5 text-slate-400">End Trip</div>
                                         <div className="text-xl font-bold flex items-center gap-2">完成並結束 <ChevronRight className="w-5 h-5" /></div>
                                     </button>
                                 </div>
                             ) : (
-                                <div className="flex gap-2 h-16">
-                                    <button onClick={handlePrevStop} disabled={currentStopIndex === 0} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-xl shadow flex flex-col items-center justify-center disabled:opacity-50">
-                                        <div className="text-[9px] font-bold uppercase tracking-wider mb-0.5 text-slate-400">Previous</div>
-                                        <div className="text-base font-bold flex items-center gap-1"><ChevronLeft className="w-4 h-4" /> {getPrevStopDisplay().replace('上一站: ', '')}</div>
-                                    </button>
+                                <div className="flex flex-col gap-2">
+                                    <div className="flex gap-2 h-14">
+                                        <button onClick={handlePrevStop} disabled={currentStopIndex === 0} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-xl shadow flex flex-col items-center justify-center disabled:opacity-50">
+                                            <div className="text-[9px] font-bold uppercase tracking-wider mb-0.5 text-slate-400">Previous</div>
+                                            <div className="text-base font-bold flex items-center gap-1"><ChevronLeft className="w-4 h-4" /> {getPrevStopDisplay().replace('上一站: ', '')}</div>
+                                        </button>
+                                        
+                                        <button onClick={handleCompleteAndShowReport} className="w-24 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-xl shadow flex flex-col items-center justify-center active:scale-[0.98] transition-all border border-slate-200">
+                                            <div className="text-[9px] font-bold uppercase tracking-wider mb-0.5">End Early</div>
+                                            <div className="text-xs font-bold flex items-center gap-1"><StopCircle className="w-4 h-4" /> 提早結束</div>
+                                        </button>
+                                    </div>
                                     
-                                    <button onClick={handleNextStop} disabled={routeStops.length > 0 && currentStopIndex > routeStops.length} className="flex-1 bg-slate-800 disabled:bg-slate-600 text-white rounded-xl shadow-lg flex flex-col items-center justify-center px-4 active:scale-[0.98] transition-all group border border-slate-700">
+                                    <button onClick={handleNextStop} disabled={routeStops.length > 0 && currentStopIndex > routeStops.length} className="w-full h-14 bg-slate-800 disabled:bg-slate-600 text-white rounded-xl shadow-lg flex flex-col items-center justify-center px-4 active:scale-[0.98] transition-all group border border-slate-700">
                                         <div className="text-[9px] font-bold uppercase tracking-wider mb-0.5 text-slate-400">Next Action</div>
-                                        <div className="text-base font-bold text-yellow-400 flex items-center gap-1">
+                                        <div className="text-xl font-bold text-yellow-400 flex items-center gap-1">
                                             {getNextStopDisplay() === '下一站' ? 
                                                 (routeStops.length > 0 && currentStopIndex < routeStops.length - 1 ? routeStops[currentStopIndex + 1].name : '下一站') 
                                                 : getNextStopDisplay()} 
-                                            <ChevronRight className="w-4 h-4" />
+                                            <ChevronRight className="w-5 h-5" />
                                         </div>
                                     </button>
                                 </div>
