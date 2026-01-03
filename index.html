@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Bus Counter 巴士客量統計 </title>
+    <title> 巴士客量統計 </title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -41,7 +41,7 @@
             Plus, Minus, RotateCcw, FileText, ChevronRight, ChevronLeft, Search, 
             Loader2, AlertCircle, Clock, Edit3, List, Users, Settings, 
             Copy, Check, BusFront, User, Hash, Info, MapPin, AlertTriangle, X, Pencil, Calculator, Timer,
-            BarChart3, Trash2, TrendingUp, Calendar, CheckCircle2, StickyNote, Eye, EyeOff, GitMerge, FileSpreadsheet, Lightbulb, UserPlus, ArrowDownToLine, StopCircle
+            BarChart3, Trash2, TrendingUp, Calendar, CheckCircle2, StickyNote, Eye, EyeOff, GitMerge, FileSpreadsheet, Lightbulb, UserPlus, ArrowDownToLine, StopCircle, MessageSquare
         } from 'lucide-react';
 
         function App() {
@@ -998,8 +998,37 @@
                                 <div className="p-4 bg-slate-50 border-b grid grid-cols-2 gap-y-3 text-sm">
                                     <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Route 路線</span><span className="font-bold text-lg">{company} {routeNumber}</span></div>
                                     <div className="text-right"><span className="text-slate-400 block text-[10px] uppercase font-bold">Date 日期</span><span className="font-bold">{new Date().toLocaleDateString()}</span></div>
-                                    <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Bus No. 車牌/車隊編號</span><span className="font-bold">{tripInfo.plate || '-'}</span></div>
-                                    <div className="text-right"><span className="text-slate-400 block text-[10px] uppercase font-bold">Captain 車長</span><span className="font-bold">{tripInfo.captainId || '-'} {tripInfo.captainName}</span></div>
+                                    
+                                    {/* Editable Inputs */}
+                                    <div>
+                                        <label className="text-slate-400 block text-[10px] uppercase font-bold">Bus No. 車牌/車隊編號</label>
+                                        <input 
+                                            type="text" 
+                                            value={tripInfo.plate} 
+                                            onChange={(e) => setTripInfo({...tripInfo, plate: e.target.value.toUpperCase()})}
+                                            className="font-bold text-lg text-slate-800 bg-transparent border-b border-transparent focus:border-blue-400 outline-none w-full placeholder-slate-300"
+                                            placeholder="輸入車牌"
+                                        />
+                                    </div>
+                                    <div className="text-right">
+                                        <label className="text-slate-400 block text-[10px] uppercase font-bold">Captain 車長</label>
+                                        <div className="flex justify-end gap-1">
+                                            <input 
+                                                type="text" 
+                                                value={tripInfo.captainId} 
+                                                onChange={(e) => setTripInfo({...tripInfo, captainId: e.target.value})}
+                                                className="font-bold text-lg text-slate-800 bg-transparent border-b border-transparent focus:border-blue-400 outline-none w-16 text-right placeholder-slate-300"
+                                                placeholder="編號"
+                                            />
+                                            <input 
+                                                type="text" 
+                                                value={tripInfo.captainName} 
+                                                onChange={(e) => setTripInfo({...tripInfo, captainName: e.target.value})}
+                                                className="font-bold text-lg text-slate-800 bg-transparent border-b border-transparent focus:border-blue-400 outline-none w-16 text-right placeholder-slate-300"
+                                                placeholder="姓名"
+                                            />
+                                        </div>
+                                    </div>
                                     
                                     <div className="col-span-2 border-t border-slate-200 pt-2 mt-1">
                                         <div className="flex justify-between items-center mb-1">
@@ -1176,7 +1205,7 @@
                         <div className="bg-white rounded-xl p-6 w-full max-w-xs shadow-2xl">
                             <div className="flex justify-between items-center mb-4">
                                 <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                                    <StickyNote className="w-5 h-5 text-yellow-500" /> 站點備註
+                                    <MessageSquare className="w-5 h-5 text-yellow-500" /> 站點備註
                                 </h3>
                                 <button onClick={() => setShowNoteInput(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5"/></button>
                             </div>
@@ -1224,7 +1253,7 @@
                         <div className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
                             <div className="bg-white rounded-xl p-5 w-full max-w-sm shadow-2xl">
                                 <div className="flex justify-between items-center mb-4">
-                                    <h3 className="text-lg font-bold flex items-center gap-2 text-slate-800"><Settings className="w-5 h-5" /> 行程資料設定</h3>
+                                    <h3 className="text-lg font-bold flex items-center gap-2 text-slate-800"><BusFront className="w-5 h-5" /> 行程資料設定</h3>
                                     <button onClick={() => setShowTripSettings(false)} className="text-sm text-blue-600 font-bold">關閉</button>
                                 </div>
                                 <div className="space-y-4 mb-6">
@@ -1313,7 +1342,7 @@
                             </div>
                             <div className="flex items-center gap-2">
                                 <button onClick={() => setShowStats(true)} className="p-2 bg-slate-700 hover:bg-slate-600 text-slate-200 hover:text-purple-300 rounded-lg border border-slate-600"><BarChart3 className="w-5 h-5" /></button>
-                                <button onClick={() => setShowTripSettings(true)} className="p-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg border border-slate-600"><Settings className="w-5 h-5" /></button>
+                                <button onClick={() => setShowTripSettings(true)} className="p-2 bg-slate-700 hover:bg-slate-600 text-slate-200 hover:text-white rounded-lg border border-slate-600"><BusFront className="w-5 h-5" /></button>
                                 <button onClick={openResetConfirm} className="p-2 text-slate-400 hover:text-white bg-slate-700/50 rounded-full"><RotateCcw className="w-5 h-5" /></button>
                                 <button onClick={handleShowReport} className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1 shadow-md active:scale-95"><FileText className="w-5 h-5" /></button>
                             </div>
@@ -1349,7 +1378,7 @@
                                     onClick={() => setShowNoteInput(true)} 
                                     className={`p-2 rounded-lg transition-all active:scale-95 border ${currentNote ? 'bg-yellow-500 text-slate-900 border-yellow-400' : 'bg-slate-600 text-slate-300 border-slate-500 hover:text-white'}`}
                                 >
-                                    <StickyNote className="w-5 h-5" />
+                                    <MessageSquare className="w-5 h-5" />
                                 </button>
                             </div>
 
